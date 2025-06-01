@@ -31,7 +31,7 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::registry()
         .with(telemetry)
         .with(fmt_layer)
-        .with(EnvFilter::from_default_env())
+        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
         .init();
 
     let initialize_span = info_span!("initialize");
