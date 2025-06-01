@@ -5,81 +5,30 @@
 # 仕様
 
 - WebSocket のエンドポイントは `/ws` とする
-- WebSocket の接続が確立されたら、以下の GraphQL クエリを全てのリポジトリに渡るように実行する
-  ```graphql
-  query GetMyWorkflowRunsFixed20RunsPerPage(
-    $numReposToFetch: Int = 50,     # 1ページあたりに取得するリポジトリ数
-    $repoPageCursor: String         # リポジトリリストのページネーションカーソル (初回はnull)
-  ) {
-    viewer {
-      repositories(
-        first: $numReposToFetch,
-        after: $repoPageCursor,
-        ownerAffiliations: OWNER,       # 自身が所有するリポジトリ
-        orderBy: {field: NAME, direction: ASC} # リポジトリ名を昇順でソート
-      ) {
-        totalCount # 自身が所有する総リポジトリ数
-        pageInfo { # リポジトリのページネーション情報
-          endCursor
-          hasNextPage
-          startCursor
-        }
-        edges { # リポジトリのリスト (カーソル付き)
-          cursor # このリポジトリのカーソル
-          node { # リポジトリの情報
-            nameWithOwner # owner/repository 形式の名前
-            url           # リポジトリのURL
-
-            workflowRuns(
-              first: 5, # ★ 各リポジトリのランを先頭20件に固定
-              orderBy: {field: CREATED_AT, direction: DESC} # 作成日時の降順 (新しい順)
-            ) {
-              totalCount # ★ このリポジトリのランの総数 (20件で打ち切られたか確認用)
-              nodes {    # ★ workflowRuns はページネーション不要なので直接 nodes を取得
-                name         # ワークフローランの名前
-                databaseId   # ワークフローランのグローバルID
-                workflow {   # 親ワークフローの情報
-                  name       # ワークフロー定義ファイルの名前
-                }
-                displayTitle # ワークフローランの表示タイトル
-                runNumber    # リポジトリ内でのランの連番
-                event        # ランをトリガーしたイベント
-                status       # ランの現在の状態
-                conclusion   # ランの最終結果
-                createdAt    # 作成日時 (ISO 8601形式)
-                updatedAt    # 最終更新日時 (ISO 8601形式)
-                url          # ワークフローランのURL
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-  ```
-  - ただし、後述するように Cynic を使用して GraphQL クエリを実行するため、上記のクエリを `Cynic` のクエリ用の構造体に変換する必要がある
-- 各 GraphQL クエリはレート制限に注意して、12秒に1回だけ実行する
-- 全リポジトリのワークフローランを取得し終わったら、全てのワークフローランをまとめて作成日時順でソートし、上位20件を以下の形式でクライアントに送信する
+- WebSocket の接続が確立されたら、 GitHub の REST API を使用して、以下の処理を行う
+  - 最新push順にリポジトリを3件取得する
+  - それらのリポジトリのworkflow runsをそれぞれ2件ずつ取得する
+  - 全リポジトリのworkflow runsを取得し終わったら、全てのworkflow runsをまとめて作成日時順でソートし、以下の形式でクライアントに送信する
   ```json
-  {
-    "runs": [
-      {
-        "repositoryName": "takumi3488/kubernetes_manifests",
-        "databaseId": 123456789,
-        "workflowName": "CI",
-        "displayTitle": "CI #123",
-        "runNumber": 123,
-        "event": "push",
-        "status": "completed",
-        "conclusion": "success",
-        "createdAt": "2023-10-01T12:34:56Z",
-        "updatedAt": "2023-10-01T12:45:00Z",
-        "url": "https://github.com/takumi3488/kubernetes_manifests/actions/runs/15377740718"
-      },
-      // ...以下19件のワークフローラン
-    ]
-  }
-- クライアントに送信した後、再度 1 から GraphQL クエリを実行し、クライアントに送信するまでの処理を繰り返す
+    {
+      "runs": [
+        {
+          "repositoryName": "takumi3488/kubernetes_manifests",
+          "id": 123456789,
+          "workflowName": "CI",
+          "displayTitle": "CI #123",
+          "event": "push",
+          "status": "completed",
+          "createdAt": "2023-10-01T12:34:56Z",
+          "updatedAt": "2023-10-01T12:45:00Z",
+          "htmlUrl": "https://github.com/takumi3488/kubernetes_manifests/actions/runs/15377740718"
+        },
+        // ...以下19件のworkflow runs
+      ]
+    }
+  - クライアントに送信した後、再度 リポジトリのworkflow runsをそれぞれ2件ずつ取得する、クライアントに送信するまでの処理を繰り返す
+  - workflow runsの取得は、12秒に1回のペースで行う
+  - workflow runsの取得が 5 回終わったら、再度最新push順にリポジトリを3件取得するから始める
 - WebSocket へ複数のクライアントが接続している場合、全てのクライアントに同じデータを送信する
 - クライアントは WebSocket 接続を閉じることができる
 
@@ -118,8 +67,7 @@
               └── external_apis.rs
   ```
 - mod.rs は使わずに、ディレクトリと同名のファイルを使用する
-- GraphQL クエリの実行には `Cynic` クレートを使用する
-  - 必要であれば、ユーザーに https://generator.cynic-rs.dev/ で `Cynic` のクエリ用の構造体を生成するように要求する
+- GraphQL API の取得には `reqwest` を使用する
 - WebSocket の実装には `axum::extract::ws` を使用する
 - できるだけI/Oを含まないユニットテストを充実させる
 
