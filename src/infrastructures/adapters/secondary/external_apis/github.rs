@@ -61,6 +61,7 @@ impl GitHubApiAdapter {
 
 #[async_trait]
 impl GitHubApi for GitHubApiAdapter {
+    #[tracing::instrument(name = "GitHubApiAdapter::fetch_repositories", skip(self))]
     async fn fetch_repositories(&self, count: u8) -> Result<Vec<Repository>, Error> {
         let url = format!(
             "{}/user/repos?type=owner&sort=pushed&direction=desc&per_page={}",
@@ -93,6 +94,7 @@ impl GitHubApi for GitHubApiAdapter {
         Ok(repositories)
     }
 
+    #[tracing::instrument(name = "GitHubApiAdapter::fetch_repository", skip(self))]
     async fn fetch_workflow_runs(
         &self,
         owner: &str,

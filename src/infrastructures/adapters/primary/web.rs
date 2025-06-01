@@ -16,6 +16,7 @@ use axum::{
 };
 use futures_util::StreamExt;
 use std::sync::Arc;
+use tower_http::trace::TraceLayer;
 // Since GitHubApiAdapter and StreamGitHubActionsRunsInteractor are imported in main.rs,
 // only import the use_case necessary for the generic type constraint of AppState here.
 // use crate::infrastructures::adapters::secondary::external_apis::github::GitHubApiAdapter;
@@ -35,6 +36,7 @@ pub async fn websocket_handler(
     ws.on_upgrade(move |socket| handle_socket(socket, state.use_case.clone()))
 }
 
+#[tracing::instrument(name = "handle_socket", skip(socket, use_case))]
 async fn handle_socket(
     mut socket: WebSocket,
     use_case: Arc<StreamGitHubActionsRunsInteractor<GitHubApiAdapter>>,
@@ -98,6 +100,7 @@ async fn handle_socket(
     tracing::info!("Client disconnected");
 }
 
+#[tracing::instrument(name = "health_check")]
 async fn health_check() -> impl IntoResponse {
     (StatusCode::OK, "OK")
 }
@@ -107,4 +110,5 @@ pub fn create_router(app_state: Arc<AppState>) -> Router {
         .route("/ws", get(websocket_handler))
         .route("/health", get(health_check))
         .with_state(app_state)
+        .layer(TraceLayer::new_for_http())
 }
