@@ -10,6 +10,7 @@ use axum::{
         State,
         ws::{Message, WebSocket, WebSocketUpgrade},
     },
+    http::StatusCode,
     response::IntoResponse,
     routing::get,
 };
@@ -97,8 +98,13 @@ async fn handle_socket(
     tracing::info!("Client disconnected");
 }
 
+async fn health_check() -> impl IntoResponse {
+    (StatusCode::OK, "OK")
+}
+
 pub fn create_router(app_state: Arc<AppState>) -> Router {
     Router::new()
         .route("/ws", get(websocket_handler))
+        .route("/health", get(health_check))
         .with_state(app_state)
 }

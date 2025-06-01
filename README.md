@@ -89,6 +89,7 @@ cargo run
 
 - **WebSocket Endpoint:** `/ws`
 
+- **Health Check Endpoint:** `/health` - Returns 200 OK with "OK" text.
 ## Notes
 
 - Be mindful of GitHub API rate limits.
