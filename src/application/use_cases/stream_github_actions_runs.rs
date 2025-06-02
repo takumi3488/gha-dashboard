@@ -47,7 +47,7 @@ impl<G: GitHubApi + Send + Sync + 'static> StreamGitHubActionsRunsUseCase
         try_stream! {
             loop {
                 tracing::info!("Fetching repositories...");
-                let repositories = github_api.fetch_repositories(3).await
+                let repositories = github_api.fetch_repositories(5).await
                     .context("Failed to fetch repositories")?;
                 tracing::info!("Fetched {} repositories", repositories.len());
 
@@ -57,8 +57,8 @@ impl<G: GitHubApi + Send + Sync + 'static> StreamGitHubActionsRunsUseCase
                     continue;
                 }
 
-                for i in 0..5 {
-                    tracing::info!("Fetching workflow runs (iteration {}/5)...", i + 1);
+                for i in 0..2 {
+                    tracing::info!("Fetching workflow runs (iteration {}/2)...", i + 1);
                     let mut all_runs: Vec<WorkflowRun> = Vec::new();
 
                     for repo in &repositories {
@@ -74,8 +74,8 @@ impl<G: GitHubApi + Send + Sync + 'static> StreamGitHubActionsRunsUseCase
                     tracing::info!("Yielding {} workflow runs", all_runs.len());
                     yield StreamGitHubActionsRunsUseCaseOutput { runs: all_runs };
 
-                    tracing::debug!("Waiting for 12 seconds...");
-                    tokio::time::sleep(Duration::from_secs(12)).await;
+                    tracing::debug!("Waiting for 30 seconds...");
+                    tokio::time::sleep(Duration::from_secs(30)).await;
                 }
             }
         }
