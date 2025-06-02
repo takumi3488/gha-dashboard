@@ -56,7 +56,7 @@ async fn main() -> anyhow::Result<()> {
     let app = create_router(app_state);
 
     // Start server
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+    let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
     info!("Listening on {}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?; // Added
