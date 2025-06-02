@@ -68,9 +68,9 @@ impl<G: GitHubApi + Send + Sync + 'static> StreamGitHubActionsRunsUseCase
                         all_runs.extend(runs);
                     }
 
-                    // created_at でソート
+                    // sort runs by created_at in descending order
                     all_runs.sort_by_key(|run| run.created_at.timestamp_millis());
-                    all_runs.reverse(); // 最新のものを先頭に
+                    all_runs.reverse();
 
                     tracing::info!("Yielding {} workflow runs", all_runs.len());
                     yield StreamGitHubActionsRunsUseCaseOutput { runs: all_runs };
