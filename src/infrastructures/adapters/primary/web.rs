@@ -67,7 +67,7 @@ async fn handle_socket(
                     Err(e) => {
                         tracing::error!("Error from use case stream: {:?}", e);
                         // Consider notifying the client depending on the error content
-                        if socket.send(Message::Text(Utf8Bytes::from(format!("Error: {}", e)))).await.is_err() {
+                        if socket.send(Message::Text(Utf8Bytes::from(format!("Error: {e}")))).await.is_err() {
                             tracing::info!("Client disconnected (send error after use case error)");
                             break;
                         }

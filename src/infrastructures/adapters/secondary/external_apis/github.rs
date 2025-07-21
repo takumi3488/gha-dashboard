@@ -4,6 +4,7 @@ use anyhow::{Context, Error};
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::Deserialize;
+use tokio::time::{Duration, sleep};
 
 #[derive(Deserialize, Debug, Clone)]
 struct GitHubRepositoryResponse {
@@ -106,29 +107,79 @@ impl GitHubApi for GitHubApiAdapter {
             self.base_url, owner, repo, count
         );
 
-        let api_response = self
-            .client
-            .get(&url)
-            .header("Authorization", format!("Bearer {}", self.github_token))
-            .header("Accept", "application/vnd.github.v3+json")
-            .header("User-Agent", "gha-dashboard-rust-app")
-            .send()
-            .await
-            .context(format!(
-                "Failed to send request to GitHub API for workflow runs of {}/{}",
-                owner, repo
-            ))?
-            .error_for_status() // Return an error for HTTP error codes
-            .context(format!(
-                "GitHub API returned an error for workflow runs of {}/{}",
-                owner, repo
-            ))?
-            .json::<GitHubWorkflowRunsApiResponse>()
-            .await
-            .context(format!(
-                "Failed to deserialize GitHub workflow runs response for {}/{}",
-                owner, repo
-            ))?;
+        const MAX_RETRIES: u32 = 10;
+        const INITIAL_WAIT_SECS: f64 = 1.0;
+        const BACKOFF_MULTIPLIER: f64 = 1.5;
+
+        let mut retries = 0;
+        let mut wait_time = INITIAL_WAIT_SECS;
+
+        let api_response = loop {
+            match self
+                .client
+                .get(&url)
+                .header("Authorization", format!("Bearer {}", self.github_token))
+                .header("Accept", "application/vnd.github.v3+json")
+                .header("User-Agent", "gha-dashboard-rust-app")
+                .send()
+                .await
+            {
+                Ok(response) => match response.error_for_status() {
+                    Ok(response) => match response.json::<GitHubWorkflowRunsApiResponse>().await {
+                        Ok(api_response) => break api_response,
+                        Err(e) => {
+                            if retries >= MAX_RETRIES {
+                                return Err(e).context(format!(
+                                            "Failed to deserialize GitHub workflow runs response for {owner}/{repo} after {MAX_RETRIES} retries"
+                                        ));
+                            }
+                            tracing::warn!(
+                                "Failed to deserialize response for {}/{}, retry {} of {}: {}",
+                                owner,
+                                repo,
+                                retries + 1,
+                                MAX_RETRIES,
+                                e
+                            );
+                        }
+                    },
+                    Err(e) => {
+                        if retries >= MAX_RETRIES {
+                            return Err(e).context(format!(
+                                    "GitHub API returned an error for workflow runs of {owner}/{repo} after {MAX_RETRIES} retries"
+                                ));
+                        }
+                        tracing::warn!(
+                            "GitHub API error for {}/{}, retry {} of {}: {}",
+                            owner,
+                            repo,
+                            retries + 1,
+                            MAX_RETRIES,
+                            e
+                        );
+                    }
+                },
+                Err(e) => {
+                    if retries >= MAX_RETRIES {
+                        return Err(e).context(format!(
+                            "Failed to send request to GitHub API for workflow runs of {owner}/{repo} after {MAX_RETRIES} retries"
+                        ));
+                    }
+                    tracing::warn!(
+                        "Request failed for {}/{}, retry {} of {}: {}",
+                        owner,
+                        repo,
+                        retries + 1,
+                        MAX_RETRIES,
+                        e
+                    );
+                }
+            }
+
+            retries += 1;
+            sleep(Duration::from_secs_f64(wait_time)).await;
+            wait_time *= BACKOFF_MULTIPLIER;
+        };
 
         let workflow_runs = api_response
             .workflow_runs
