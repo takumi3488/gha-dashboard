@@ -2,8 +2,9 @@ use crate::domain::external_apis::github::{GitHubApi, Repository};
 use crate::domain::models::run::WorkflowRun;
 use anyhow::{Context, Error};
 use async_trait::async_trait;
-use reqwest::Client;
+use reqwest::{Client, Response};
 use serde::Deserialize;
+use std::future::Future;
 use tokio::time::{Duration, sleep};
 
 #[derive(Deserialize, Debug, Clone)]
@@ -58,6 +59,80 @@ impl GitHubApiAdapter {
             github_token,
         }
     }
+
+    async fn execute_with_retry<T, F, Fut>(
+        &self,
+        operation_name: &str,
+        request_fn: F,
+    ) -> Result<T, Error>
+    where
+        F: Fn() -> Fut,
+        Fut: Future<Output = Result<Response, reqwest::Error>>,
+        T: serde::de::DeserializeOwned,
+    {
+        const MAX_RETRIES: u32 = 10;
+        const INITIAL_WAIT_SECS: f64 = 1.0;
+        const BACKOFF_MULTIPLIER: f64 = 1.5;
+
+        let mut retries = 0;
+        let mut wait_time = INITIAL_WAIT_SECS;
+
+        loop {
+            match request_fn().await {
+                Ok(response) => match response.error_for_status() {
+                    Ok(response) => match response.json::<T>().await {
+                        Ok(result) => return Ok(result),
+                        Err(e) => {
+                            if retries >= MAX_RETRIES {
+                                return Err(e).context(format!(
+                                    "Failed to deserialize response for {operation_name} after {MAX_RETRIES} retries"
+                                ));
+                            }
+                            tracing::warn!(
+                                "Failed to deserialize response for {}, retry {} of {}: {}",
+                                operation_name,
+                                retries + 1,
+                                MAX_RETRIES,
+                                e
+                            );
+                        }
+                    },
+                    Err(e) => {
+                        if retries >= MAX_RETRIES {
+                            return Err(e).context(format!(
+                                "API returned an error for {operation_name} after {MAX_RETRIES} retries"
+                            ));
+                        }
+                        tracing::warn!(
+                            "API error for {}, retry {} of {}: {}",
+                            operation_name,
+                            retries + 1,
+                            MAX_RETRIES,
+                            e
+                        );
+                    }
+                },
+                Err(e) => {
+                    if retries >= MAX_RETRIES {
+                        return Err(e).context(format!(
+                            "Failed to send request for {operation_name} after {MAX_RETRIES} retries"
+                        ));
+                    }
+                    tracing::warn!(
+                        "Request failed for {}, retry {} of {}: {}",
+                        operation_name,
+                        retries + 1,
+                        MAX_RETRIES,
+                        e
+                    );
+                }
+            }
+
+            retries += 1;
+            sleep(Duration::from_secs_f64(wait_time)).await;
+            wait_time *= BACKOFF_MULTIPLIER;
+        }
+    }
 }
 
 #[async_trait]
@@ -69,20 +144,16 @@ impl GitHubApi for GitHubApiAdapter {
             self.base_url, count
         );
 
-        let response_items = self
-            .client
-            .get(&url)
-            .header("Authorization", format!("Bearer {}", self.github_token))
-            .header("Accept", "application/vnd.github.v3+json")
-            .header("User-Agent", "gha-dashboard-rust-app")
-            .send()
-            .await
-            .context("Failed to send request to GitHub API for repositories")?
-            .error_for_status() // Return an error for HTTP error codes
-            .context("GitHub API returned an error for repositories")?
-            .json::<Vec<GitHubRepositoryResponse>>()
-            .await
-            .context("Failed to deserialize GitHub repositories response")?;
+        let response_items: Vec<GitHubRepositoryResponse> = self
+            .execute_with_retry("fetch_repositories", || {
+                self.client
+                    .get(&url)
+                    .header("Authorization", format!("Bearer {}", self.github_token))
+                    .header("Accept", "application/vnd.github.v3+json")
+                    .header("User-Agent", "gha-dashboard-rust-app")
+                    .send()
+            })
+            .await?;
 
         let repositories = response_items
             .into_iter()
@@ -107,79 +178,16 @@ impl GitHubApi for GitHubApiAdapter {
             self.base_url, owner, repo, count
         );
 
-        const MAX_RETRIES: u32 = 10;
-        const INITIAL_WAIT_SECS: f64 = 1.0;
-        const BACKOFF_MULTIPLIER: f64 = 1.5;
-
-        let mut retries = 0;
-        let mut wait_time = INITIAL_WAIT_SECS;
-
-        let api_response = loop {
-            match self
-                .client
-                .get(&url)
-                .header("Authorization", format!("Bearer {}", self.github_token))
-                .header("Accept", "application/vnd.github.v3+json")
-                .header("User-Agent", "gha-dashboard-rust-app")
-                .send()
-                .await
-            {
-                Ok(response) => match response.error_for_status() {
-                    Ok(response) => match response.json::<GitHubWorkflowRunsApiResponse>().await {
-                        Ok(api_response) => break api_response,
-                        Err(e) => {
-                            if retries >= MAX_RETRIES {
-                                return Err(e).context(format!(
-                                            "Failed to deserialize GitHub workflow runs response for {owner}/{repo} after {MAX_RETRIES} retries"
-                                        ));
-                            }
-                            tracing::warn!(
-                                "Failed to deserialize response for {}/{}, retry {} of {}: {}",
-                                owner,
-                                repo,
-                                retries + 1,
-                                MAX_RETRIES,
-                                e
-                            );
-                        }
-                    },
-                    Err(e) => {
-                        if retries >= MAX_RETRIES {
-                            return Err(e).context(format!(
-                                    "GitHub API returned an error for workflow runs of {owner}/{repo} after {MAX_RETRIES} retries"
-                                ));
-                        }
-                        tracing::warn!(
-                            "GitHub API error for {}/{}, retry {} of {}: {}",
-                            owner,
-                            repo,
-                            retries + 1,
-                            MAX_RETRIES,
-                            e
-                        );
-                    }
-                },
-                Err(e) => {
-                    if retries >= MAX_RETRIES {
-                        return Err(e).context(format!(
-                            "Failed to send request to GitHub API for workflow runs of {owner}/{repo} after {MAX_RETRIES} retries"
-                        ));
-                    }
-                    tracing::warn!(
-                        "Request failed for {}/{}, retry {} of {}: {}",
-                        owner,
-                        repo,
-                        retries + 1,
-                        MAX_RETRIES,
-                        e
-                    );
-                }
-            }
-
-            retries += 1;
-            sleep(Duration::from_secs_f64(wait_time)).await;
-            wait_time *= BACKOFF_MULTIPLIER;
-        };
+        let api_response: GitHubWorkflowRunsApiResponse = self
+            .execute_with_retry(&format!("workflow runs for {owner}/{repo}"), || {
+                self.client
+                    .get(&url)
+                    .header("Authorization", format!("Bearer {}", self.github_token))
+                    .header("Accept", "application/vnd.github.v3+json")
+                    .header("User-Agent", "gha-dashboard-rust-app")
+                    .send()
+            })
+            .await?;
 
         let workflow_runs = api_response
             .workflow_runs
