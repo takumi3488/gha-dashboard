@@ -55,7 +55,7 @@ async fn handle_socket(
                         match serde_json::to_string(&output) {
                             Ok(json_string) => {
                                 if socket.send(Message::Text(Utf8Bytes::from(json_string))).await.is_err() {
-                                    tracing::info!("Client disconnected (send error)");
+                                    tracing::info!("Client disconnected (failed to send message)");
                                     break; // Break loop on error
                                 }
                             }
@@ -68,7 +68,7 @@ async fn handle_socket(
                         tracing::error!("Error from use case stream: {:?}", e);
                         // Consider notifying the client depending on the error content
                         if socket.send(Message::Text(Utf8Bytes::from(format!("Error: {e}")))).await.is_err() {
-                            tracing::info!("Client disconnected (send error after use case error)");
+                            tracing::info!("Client disconnected (failed to send error notification)");
                             break;
                         }
                     }
