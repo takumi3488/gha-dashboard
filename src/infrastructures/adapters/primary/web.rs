@@ -11,10 +11,14 @@ use axum::{
         ws::{Message, WebSocket, WebSocketUpgrade},
     },
     http::StatusCode,
-    response::IntoResponse,
+    response::{
+        IntoResponse,
+        sse::{Event, Sse},
+    },
     routing::get,
 };
-use futures_util::StreamExt;
+use futures_util::{Stream, StreamExt};
+use std::convert::Infallible;
 use std::sync::Arc;
 use tower_http::trace::TraceLayer;
 // Since GitHubApiAdapter and StreamGitHubActionsRunsInteractor are imported in main.rs,
@@ -100,6 +104,43 @@ async fn handle_socket(
     tracing::info!("Client disconnected");
 }
 
+#[axum::debug_handler]
+pub async fn sse_handler(
+    State(state): State<Arc<AppState>>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    tracing::info!("SSE client connected");
+    let use_case = state.use_case.clone();
+
+    let sse_stream = async_stream::stream! {
+        let input = StreamGitHubActionsRunsUseCaseInput {};
+        let stream = use_case.execute(input);
+        tokio::pin!(stream);
+
+        while let Some(result) = stream.next().await {
+            let event = match result {
+                Ok(output) => match serde_json::to_string(&output) {
+                    Ok(json_string) => Event::default().data(json_string),
+                    Err(e) => {
+                        tracing::error!("Failed to serialize output: {:?}", e);
+                        Event::default()
+                            .event("error")
+                            .data(format!("Serialization error: {e}"))
+                    }
+                },
+                Err(e) => {
+                    tracing::error!("Error from use case stream: {:?}", e);
+                    Event::default()
+                        .event("error")
+                        .data(format!("Error: {e}"))
+                }
+            };
+            yield Ok::<_, Infallible>(event);
+        }
+    };
+
+    Sse::new(sse_stream)
+}
+
 #[tracing::instrument(name = "health_check")]
 async fn health_check() -> impl IntoResponse {
     (StatusCode::OK, "OK")
@@ -108,6 +149,7 @@ async fn health_check() -> impl IntoResponse {
 pub fn create_router(app_state: Arc<AppState>) -> Router {
     Router::new()
         .route("/ws", get(websocket_handler))
+        .route("/sse", get(sse_handler))
         .route("/health", get(health_check))
         .with_state(app_state)
         .layer(TraceLayer::new_for_http())
