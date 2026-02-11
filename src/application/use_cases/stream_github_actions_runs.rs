@@ -111,8 +111,7 @@ mod tests {
         // 1イテレーションあたりのAPI呼び出し回数を計算
         // - fetch_repositories: 1回
         // - fetch_workflow_runs: MAX_REPOSITORIES_TO_FETCH回
-        let api_calls_per_iteration =
-            1 + MAX_REPOSITORIES_TO_FETCH as u32; // 1 (repositories) + 5 (workflow runs)
+        let api_calls_per_iteration = 1 + MAX_REPOSITORIES_TO_FETCH as u32; // 1 (repositories) + 5 (workflow runs)
 
         // 1ループ（FETCH_ITERATIONS回のイテレーション）あたりのAPI呼び出し回数
         let api_calls_per_loop = api_calls_per_iteration * FETCH_ITERATIONS as u32;
@@ -137,12 +136,18 @@ mod tests {
 
         // デバッグ情報を出力
         println!("=== GitHub APIレート制限チェック ===");
-        println!("1イテレーションあたりのAPI呼び出し: {}回", api_calls_per_iteration);
+        println!(
+            "1イテレーションあたりのAPI呼び出し: {}回",
+            api_calls_per_iteration
+        );
         println!("1ループあたりのAPI呼び出し: {}回", api_calls_per_loop);
         println!("1ループの所要時間: {}秒", seconds_per_loop);
         println!("1時間あたりのループ回数: {}回", loops_per_hour);
         println!("1時間あたりの最大API呼び出し: {}回", max_api_calls_per_hour);
-        println!("GitHubレート制限（標準）: {}回/時間", GITHUB_API_RATE_LIMIT_PER_HOUR);
+        println!(
+            "GitHubレート制限（標準）: {}回/時間",
+            GITHUB_API_RATE_LIMIT_PER_HOUR
+        );
         println!(
             "安全マージン: {}回/時間（{}%）",
             GITHUB_API_RATE_LIMIT_PER_HOUR - max_api_calls_per_hour,
@@ -177,10 +182,7 @@ mod tests {
             MAX_REPOSITORIES_TO_FETCH, 5,
             "MAX_REPOSITORIES_TO_FETCHが変更されています"
         );
-        assert_eq!(
-            FETCH_ITERATIONS, 2,
-            "FETCH_ITERATIONSが変更されています"
-        );
+        assert_eq!(FETCH_ITERATIONS, 2, "FETCH_ITERATIONSが変更されています");
         assert_eq!(
             ITERATION_WAIT_SECONDS, 30,
             "ITERATION_WAIT_SECONDSが変更されています"
