@@ -15,7 +15,7 @@ async fn main() -> anyhow::Result<()> {
     let otlp_exporter = opentelemetry_otlp::SpanExporter::builder()
         .with_tonic()
         .build()
-        .expect("Failed to create OTLP exporter");
+        .map_err(|e| anyhow::anyhow!("Failed to create OTLP exporter: {e}"))?;
     let provider = SdkTracerProvider::builder()
         .with_batch_exporter(otlp_exporter)
         .build();
@@ -40,7 +40,7 @@ async fn main() -> anyhow::Result<()> {
 
     // GitHub Token の読み込み
     let github_token = env::var("GITHUB_TOKEN")
-        .map_err(|e| anyhow::anyhow!("Failed to read GITHUB_TOKEN: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to read GITHUB_TOKEN: {e}"))?;
 
     // Build dependencies
     let github_api_adapter = Arc::new(GitHubApiAdapter::new(
