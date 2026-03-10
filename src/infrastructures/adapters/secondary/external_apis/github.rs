@@ -52,6 +52,7 @@ pub struct GitHubApiAdapter {
 }
 
 impl GitHubApiAdapter {
+    #[must_use]
     pub fn new(base_url: String, github_token: String) -> Self {
         Self {
             client: Client::new(),

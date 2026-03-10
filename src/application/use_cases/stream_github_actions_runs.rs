@@ -106,72 +106,57 @@ mod tests {
     const GITHUB_API_RATE_LIMIT_PER_HOUR: u32 = 5_000;
     const GITHUB_API_RATE_LIMIT_ENTERPRISE_PER_HOUR: u32 = 15_000;
 
+    /// `FETCH_ITERATIONS` を u64 として扱うための定数（u8/u32 範囲内に収まることが保証されている）
+    const FETCH_ITERATIONS_U64: u64 = FETCH_ITERATIONS as u64;
+
+    /// 1時間あたりのAPI呼び出し回数を計算する（すべて u64 で計算）
+    const fn calc_api_calls_per_hour_u64() -> u64 {
+        let api_calls_per_iteration = 1u64 + (MAX_REPOSITORIES_TO_FETCH as u64);
+        let api_calls_per_loop = api_calls_per_iteration * FETCH_ITERATIONS_U64;
+        let seconds_per_loop = FETCH_ITERATIONS_U64 * ITERATION_WAIT_SECONDS;
+        let loops_per_hour = 3600 / seconds_per_loop;
+        api_calls_per_loop * loops_per_hour
+    }
+
     #[test]
     fn test_api_calls_do_not_exceed_rate_limit() {
-        // 1イテレーションあたりのAPI呼び出し回数を計算
-        // - fetch_repositories: 1回
-        // - fetch_workflow_runs: MAX_REPOSITORIES_TO_FETCH回
-        let api_calls_per_iteration = 1 + MAX_REPOSITORIES_TO_FETCH as u32; // 1 (repositories) + 5 (workflow runs)
-
-        // 1ループ（FETCH_ITERATIONS回のイテレーション）あたりのAPI呼び出し回数
-        let api_calls_per_loop = api_calls_per_iteration * FETCH_ITERATIONS as u32;
-
-        // 1ループの所要時間（秒）
-        // FETCH_ITERATIONS回のイテレーション × ITERATION_WAIT_SECONDS秒の待機時間
-        let seconds_per_loop = FETCH_ITERATIONS as u64 * ITERATION_WAIT_SECONDS;
-
-        // 1時間（3600秒）あたりの最大ループ回数
-        let loops_per_hour = 3600 / seconds_per_loop;
-
-        // 1時間あたりの最大API呼び出し回数
-        let max_api_calls_per_hour = api_calls_per_loop * loops_per_hour as u32;
+        let max_api_calls_per_hour = calc_api_calls_per_hour_u64();
+        let rate_limit = u64::from(GITHUB_API_RATE_LIMIT_PER_HOUR);
 
         // 標準のレート制限（5,000リクエスト/時間）を超えないことを確認
         assert!(
-            max_api_calls_per_hour <= GITHUB_API_RATE_LIMIT_PER_HOUR,
-            "API呼び出し回数（{}回/時間）がGitHubのレート制限（{}回/時間）を超えています",
-            max_api_calls_per_hour,
-            GITHUB_API_RATE_LIMIT_PER_HOUR
+            max_api_calls_per_hour <= rate_limit,
+            "API呼び出し回数（{max_api_calls_per_hour}回/時間）がGitHubのレート制限（{rate_limit}回/時間）を超えています",
         );
 
         // デバッグ情報を出力
+        let api_calls_per_iteration = 1u64 + u64::from(MAX_REPOSITORIES_TO_FETCH);
+        let api_calls_per_loop = api_calls_per_iteration * FETCH_ITERATIONS_U64;
+        let seconds_per_loop = FETCH_ITERATIONS_U64 * ITERATION_WAIT_SECONDS;
+        let loops_per_hour = 3600 / seconds_per_loop;
         println!("=== GitHub APIレート制限チェック ===");
-        println!(
-            "1イテレーションあたりのAPI呼び出し: {}回",
-            api_calls_per_iteration
-        );
-        println!("1ループあたりのAPI呼び出し: {}回", api_calls_per_loop);
-        println!("1ループの所要時間: {}秒", seconds_per_loop);
-        println!("1時間あたりのループ回数: {}回", loops_per_hour);
-        println!("1時間あたりの最大API呼び出し: {}回", max_api_calls_per_hour);
-        println!(
-            "GitHubレート制限（標準）: {}回/時間",
-            GITHUB_API_RATE_LIMIT_PER_HOUR
-        );
-        println!(
-            "安全マージン: {}回/時間（{}%）",
-            GITHUB_API_RATE_LIMIT_PER_HOUR - max_api_calls_per_hour,
-            (GITHUB_API_RATE_LIMIT_PER_HOUR - max_api_calls_per_hour) * 100
-                / GITHUB_API_RATE_LIMIT_PER_HOUR
-        );
+        println!("1イテレーションあたりのAPI呼び出し: {api_calls_per_iteration}回");
+        println!("1ループあたりのAPI呼び出し: {api_calls_per_loop}回");
+        println!("1ループの所要時間: {seconds_per_loop}秒");
+        println!("1時間あたりのループ回数: {loops_per_hour}回");
+        println!("1時間あたりの最大API呼び出し: {max_api_calls_per_hour}回");
+        println!("GitHubレート制限（標準）: {rate_limit}回/時間");
+        let margin = rate_limit - max_api_calls_per_hour;
+        let margin_pct = margin * 100 / rate_limit;
+        println!("安全マージン: {margin}回/時間（{margin_pct}%）");
     }
 
     #[test]
     fn test_api_calls_efficiency() {
         // 効率性の確認：レート制限の80%以下の使用率を推奨
-        let recommended_max = (GITHUB_API_RATE_LIMIT_PER_HOUR as f64 * 0.8) as u32;
+        // 80% = 4/5 なので整数演算で計算
+        let recommended_max = u64::from(GITHUB_API_RATE_LIMIT_PER_HOUR) * 4 / 5;
 
-        let api_calls_per_iteration = 1 + MAX_REPOSITORIES_TO_FETCH as u32;
-        let api_calls_per_loop = api_calls_per_iteration * FETCH_ITERATIONS as u32;
-        let seconds_per_loop = FETCH_ITERATIONS as u64 * ITERATION_WAIT_SECONDS;
-        let loops_per_hour = 3600 / seconds_per_loop;
-        let max_api_calls_per_hour = api_calls_per_loop * loops_per_hour as u32;
+        let max_api_calls_per_hour = calc_api_calls_per_hour_u64();
 
         assert!(
             max_api_calls_per_hour <= recommended_max,
-            "API呼び出し回数（{}回/時間）が推奨される使用率（レート制限の80%: {}回/時間）を超えています",
-            max_api_calls_per_hour,
-            recommended_max
+            "API呼び出し回数（{max_api_calls_per_hour}回/時間）が推奨される使用率（レート制限の80%: {recommended_max}回/時間）を超えています",
         );
     }
 
@@ -189,18 +174,18 @@ mod tests {
         );
 
         // 期待される値
-        let expected_api_calls_per_iteration = 6; // 1 + 5
-        let expected_api_calls_per_loop = 12; // 6 * 2
-        let expected_seconds_per_loop = 60; // 2 * 30
-        let expected_loops_per_hour = 60; // 3600 / 60
-        let expected_max_api_calls_per_hour = 720; // 12 * 60
+        let expected_api_calls_per_iteration = 6u64; // 1 + 5
+        let expected_api_calls_per_loop = 12u64; // 6 * 2
+        let expected_seconds_per_loop = 60u64; // 2 * 30
+        let expected_loops_per_hour = 60u64; // 3600 / 60
+        let expected_max_api_calls_per_hour = 720u64; // 12 * 60
 
         // 実際の計算
-        let api_calls_per_iteration = 1 + MAX_REPOSITORIES_TO_FETCH as u32;
-        let api_calls_per_loop = api_calls_per_iteration * FETCH_ITERATIONS as u32;
-        let seconds_per_loop = FETCH_ITERATIONS as u64 * ITERATION_WAIT_SECONDS;
+        let api_calls_per_iteration = 1u64 + u64::from(MAX_REPOSITORIES_TO_FETCH);
+        let api_calls_per_loop = api_calls_per_iteration * FETCH_ITERATIONS_U64;
+        let seconds_per_loop = FETCH_ITERATIONS_U64 * ITERATION_WAIT_SECONDS;
         let loops_per_hour = 3600 / seconds_per_loop;
-        let max_api_calls_per_hour = api_calls_per_loop * loops_per_hour as u32;
+        let max_api_calls_per_hour = api_calls_per_loop * loops_per_hour;
 
         // 検証
         assert_eq!(api_calls_per_iteration, expected_api_calls_per_iteration);
@@ -210,23 +195,18 @@ mod tests {
         assert_eq!(max_api_calls_per_hour, expected_max_api_calls_per_hour);
 
         // 最終確認：720回/時間 << 5,000回/時間
-        assert!(max_api_calls_per_hour < GITHUB_API_RATE_LIMIT_PER_HOUR);
+        assert!(max_api_calls_per_hour < u64::from(GITHUB_API_RATE_LIMIT_PER_HOUR));
     }
 
     #[test]
     fn test_enterprise_rate_limit_compliance() {
         // Enterprise Cloudのレート制限（15,000リクエスト/時間）でも問題ないことを確認
-        let api_calls_per_iteration = 1 + MAX_REPOSITORIES_TO_FETCH as u32;
-        let api_calls_per_loop = api_calls_per_iteration * FETCH_ITERATIONS as u32;
-        let seconds_per_loop = FETCH_ITERATIONS as u64 * ITERATION_WAIT_SECONDS;
-        let loops_per_hour = 3600 / seconds_per_loop;
-        let max_api_calls_per_hour = api_calls_per_loop * loops_per_hour as u32;
+        let max_api_calls_per_hour = calc_api_calls_per_hour_u64();
+        let enterprise_limit = u64::from(GITHUB_API_RATE_LIMIT_ENTERPRISE_PER_HOUR);
 
         assert!(
-            max_api_calls_per_hour <= GITHUB_API_RATE_LIMIT_ENTERPRISE_PER_HOUR,
-            "API呼び出し回数（{}回/時間）がGitHub Enterprise Cloudのレート制限（{}回/時間）を超えています",
-            max_api_calls_per_hour,
-            GITHUB_API_RATE_LIMIT_ENTERPRISE_PER_HOUR
+            max_api_calls_per_hour <= enterprise_limit,
+            "API呼び出し回数（{max_api_calls_per_hour}回/時間）がGitHub Enterprise Cloudのレート制限（{enterprise_limit}回/時間）を超えています",
         );
     }
 }
