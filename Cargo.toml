@@ -10,9 +10,9 @@ async-trait = "0.1"
 axum = { version = "0.8", features = ["ws", "macros"] }
 chrono = { version = "0.4", features = ["serde"] }
 futures-util = { version = "0.3", features = ["sink"] }
-opentelemetry = "0.31.0"
-opentelemetry-otlp = { version = "0.31.0", features = ["trace", "grpc-tonic"] }
-opentelemetry_sdk = { version = "0.31.0", features = ["rt-tokio", "trace"] }
+opentelemetry = "0.32.0"
+opentelemetry-otlp = { version = "0.32.0", features = ["trace", "grpc-tonic"] }
+opentelemetry_sdk = { version = "0.32.0", features = ["rt-tokio", "trace"] }
 reqwest = { version = "0.13", features = ["json"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
