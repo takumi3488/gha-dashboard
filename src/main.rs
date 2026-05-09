@@ -1,41 +1,26 @@
 use gha_dashboard::application::use_cases::stream_github_actions_runs::StreamGitHubActionsRunsInteractor;
 use gha_dashboard::infrastructures::adapters::primary::web::{AppState, create_router};
 use gha_dashboard::infrastructures::adapters::secondary::external_apis::github::GitHubApiAdapter;
-use opentelemetry::trace::TracerProvider as _;
-use opentelemetry_sdk::trace::SdkTracerProvider;
 use std::env;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tracing::{info, info_span};
-use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
+use tracing::info;
+use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Initialize tracing
-    let otlp_exporter = opentelemetry_otlp::SpanExporter::builder()
-        .with_tonic()
-        .build()
-        .map_err(|e| anyhow::anyhow!("Failed to create OTLP exporter: {e}"))?;
-    let provider = SdkTracerProvider::builder()
-        .with_batch_exporter(otlp_exporter)
-        .build();
-    let tracer = provider.tracer("gha-dashboard");
-
-    let telemetry = tracing_opentelemetry::layer().with_tracer(tracer);
-    let fmt_layer = tracing_subscriber::fmt::layer()
+    let fmt_layer = fmt::layer()
         .with_target(true)
         .with_level(true)
         .with_file(true)
         .with_line_number(true);
 
     tracing_subscriber::registry()
-        .with(telemetry)
         .with(fmt_layer)
         .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
         .init();
 
-    let initialize_span = info_span!("initialize");
-    let _enter = initialize_span.enter();
     info!("Application starting");
 
     // GitHub Token の読み込み
