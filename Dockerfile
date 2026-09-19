@@ -1,4 +1,4 @@
-FROM rust:1.98-slim-bookworm@sha256:94f07be94ef988b07ffced04e357f26044a1d3e742931886b346138d93ffc843 AS builder
+FROM rust:1.98-slim-bookworm@sha256:ff521445a372125ed4f76e1453a1f8098f2d05332d1601d30db1c1f62757e730 AS builder
 WORKDIR /usr/src/app
 RUN apt-get update && apt-get install -y pkg-config libssl-dev
 COPY . .
